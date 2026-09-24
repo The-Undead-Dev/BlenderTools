@@ -787,7 +787,7 @@ def create_nodes_from_selected_bones(properties):
         if rig_object.type == 'ARMATURE':
             socket_names = []
             for bone in rig_object.pose.bones:
-                if bone.bone.select:
+                if bone.select:
                     socket_names.append(bone.name)
 
                     if rig_object.name == Rigify.CONTROL_RIG_NAME:
@@ -883,7 +883,7 @@ def create_link_from_selected_bones(properties):
         if rig_object.type == 'ARMATURE':
             socket_name = ''
             for bone in rig_object.pose.bones:
-                if bone.bone.select:
+                if bone.select:
                     socket_name = bone.name
                     if rig_object.name == Rigify.CONTROL_RIG_NAME:
                         node_name = f'{utilities.set_to_title(Modes.CONTROL.name)} Rig {bone.name}'
@@ -1201,14 +1201,23 @@ def register():
     """
     Registers the node classes when the addon is enabled.
     """
+    # the classes are re-created on every register, so drop any stale ones from a previous register. Registering a
+    # node tree class whose bl_idname is already registered crashes Blender 5.2 when it has a UI.
+    node_tree_classes.clear()
     create_node_tree_class(node_tree_classes)
     create_socket_class(node_tree_classes)
 
-    try:
-        for cls in node_tree_classes:
+    for cls in node_tree_classes:
+        existing_cls = getattr(bpy.types, cls.bl_idname, None)
+        if existing_cls:
+            try:
+                bpy.utils.unregister_class(existing_cls)
+            except (RuntimeError, ValueError) as error:
+                sys.stderr.write(str(error))
+        try:
             bpy.utils.register_class(cls)
-    except (RuntimeError, ValueError) as error:
-        sys.stderr.write(str(error))
+        except (RuntimeError, ValueError) as error:
+            sys.stderr.write(str(error))
 
 
 def unregister():
@@ -1218,8 +1227,9 @@ def unregister():
     remove_node_setup()
     remove_node_categories()
 
-    try:
-        for cls in reversed(node_tree_classes):
+    for cls in reversed(node_tree_classes):
+        try:
             bpy.utils.unregister_class(cls)
-    except (RuntimeError, ValueError) as error:
-        sys.stderr.write(str(error))
+        except (RuntimeError, ValueError) as error:
+            sys.stderr.write(str(error))
+    node_tree_classes.clear()

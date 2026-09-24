@@ -137,7 +137,7 @@ def get_keyframe_data(rig_object, socket_direction=None, links_data=None):
                     keyed_values = []
 
                     # go through the strips fcurves
-                    for fcurve in strip.action.fcurves:
+                    for fcurve in utilities.get_action_fcurves(strip.action, strip.action_slot):
                         socket_name = 'object'
                         data_path = fcurve.data_path
 
@@ -201,10 +201,10 @@ def get_to_rig_action(from_rig_action, from_rig_object, to_rig_object, bake_to_s
         to_rig_object.animation_data_create()
 
     # set the to_rig action to the current action on the to_rig
-    to_rig_object.animation_data.action = to_rig_action
+    utilities.assign_action(to_rig_object.animation_data, to_rig_action)
 
     # set the from_rig_action to the current action on the from_rig
-    from_rig_object.animation_data.action = from_rig_action
+    utilities.assign_action(from_rig_object.animation_data, from_rig_action)
 
     return to_rig_action
 
@@ -323,6 +323,7 @@ def set_action_to_nla_strip(to_rig_action, to_rig_object, from_rig_action_data, 
     # create a new nla strip and set the strip start and end values
     to_rig_strip_name = to_rig_strip_name.replace(f'{Modes.SOURCE.name}_', '')
     to_rig_strip = to_rig_nla_track.strips.new(to_rig_strip_name, 0, to_rig_action)
+    utilities.assign_strip_action_slot(to_rig_strip, to_rig_object.animation_data.action_slot)
     to_rig_strip.frame_start = from_rig_action_data['strip_frame_start']
     to_rig_strip.frame_end = from_rig_action_data['strip_frame_end']
 
@@ -468,15 +469,16 @@ def remove_location_key_frames(rig_object, excluded_fcurves):
             for nla_track in rig_object.animation_data.nla_tracks:
                 for strip in nla_track.strips:
                     if strip.action:
-                        for fcurve in strip.action.fcurves:
+                        for fcurve in utilities.get_action_fcurves(strip.action):
                             # does not remove fcurves of the objects transforms
                             if fcurve.data_path in ['location', 'rotation_euler', 'rotation_quaternion', 'scale']:
                                 continue
 
-                            for excluded_fcurve in excluded_fcurves:
-                                if excluded_fcurve not in fcurve.data_path:
-                                    if fcurve.data_path[-8:] == 'location':
-                                        strip.action.fcurves.remove(fcurve)
+                            if any(excluded_fcurve in fcurve.data_path for excluded_fcurve in excluded_fcurves):
+                                continue
+
+                            if fcurve.data_path[-8:] == 'location':
+                                utilities.remove_action_fcurve(strip.action, fcurve)
 
             utilities.operator_on_object_in_mode(
                 lambda: utilities.clear_pose_location(),
@@ -862,7 +864,7 @@ def select_related_keyed_bones(to_rig_object, from_rig_action_data, links_data):
             # select only the corresponding bones who's sockets are linked in the nodes
             if link['from_socket'] == from_bone_name:
                 if bpy.context.mode == 'POSE':
-                    to_bone = to_rig_object.data.bones.get(link['to_socket'])
+                    to_bone = to_rig_object.pose.bones.get(link['to_socket'])
                     if to_bone:
                         to_bone.select = True
 
@@ -1111,6 +1113,7 @@ def sync_nla_track_data(control_rig_object, source_rig_object):
                         start=int(control_strip.frame_start),
                         action=source_action
                     )
+                    utilities.assign_strip_action_slot(source_strip)
 
                     # sync the strip values
                     source_strip.name = control_strip.name
@@ -1236,8 +1239,8 @@ def bake_from_rig_to_rig(from_rig_object, to_rig_object, properties, bake_to_sou
 
             # remove all existing keyframes when baking to source
             if bake_to_source:
-                for fcurve in to_rig_action.fcurves:
-                    to_rig_action.fcurves.remove(fcurve)
+                for fcurve in utilities.get_action_fcurves(to_rig_action):
+                    utilities.remove_action_fcurve(to_rig_action, fcurve)
 
             if from_rig_action_data['data'] or properties.bake_every_bone:
                 # bake the visual pose transforms of the bones to the current action
@@ -1301,13 +1304,6 @@ def save_meta_rig(properties):
             else:
                 templates.save_text_file(metarig_data, properties.saved_metarig_data)
 
-        # save the constraints data if there is any
-        if bpy.app.version[0] <= 2 and bpy.app.version[1] < 92:
-            metarig_object = bpy.data.objects.get(Rigify.META_RIG_NAME)
-            constraints_data = templates.get_constraints_data(metarig_object)
-            if constraints_data:
-                templates.save_constraints(constraints_data, properties)
-
 
 def save_rig_nodes(properties):
     """
@@ -1356,17 +1352,6 @@ def load_metadata(properties):
         for attribute, value in visual_data.get('armature', {}).items():
             setattr(rig_object.data, attribute, value)
 
-        # set the bone groups if b3
-        if bpy.app.version[0] < 4:
-            for bone_group_name, bone_group_data in visual_data.get('bone_groups', {}).items():
-                bone_group = rig_object.pose.bone_groups.get(bone_group_name)
-                if not bone_group:
-                    bone_group = rig_object.pose.bone_groups.new(name=bone_group_name)
-                bone_group.color_set = bone_group_data['color_set']
-                bone_group.colors.active = bone_group_data['colors']['active']
-                bone_group.colors.normal = bone_group_data['colors']['normal']
-                bone_group.colors.select = bone_group_data['colors']['select']
-
         # set the bone attributes
         for bone_name, bone_data in visual_data.get('bones', {}).items():
             bone = rig_object.pose.bones.get(bone_name)
@@ -1382,12 +1367,6 @@ def load_metadata(properties):
                 bone.custom_shape_rotation_euler = custom_shape_data['rotation']
                 bone.custom_shape_scale_xyz = custom_shape_data['scale']
                 bone.use_custom_shape_bone_size = custom_shape_data['use_bone_size']
-            
-            # set the bone group if b3
-            if bpy.app.version[0] < 4:
-                bone_group = rig_object.pose.bone_groups.get(bone_data.get('bone_group', ''))
-                if bone_group:
-                    bone.bone_group = bone_group
 
 
 def save_metadata(properties):
@@ -1405,16 +1384,12 @@ def save_metadata(properties):
                     },
                     'armature': {
                         'show_names': rig_object.data.show_names,
-                        'show_bone_custom_shapes': rig_object.data.show_bone_custom_shapes
+                        'show_bone_custom_shapes': rig_object.data.show_bone_custom_shapes,
+                        'show_bone_colors': rig_object.data.show_bone_colors
                     },
                     'bones': {},
+                    'bone_colors': {}
             }
-            if bpy.app.version[0] < 4:
-                visual_data['armature']['show_group_colors'] = rig_object.data.show_group_colors
-                visual_data['bone_groups'] = {}
-            else:
-                visual_data['armature']['show_bone_colors'] = rig_object.data.show_bone_colors
-                visual_data['bone_colors'] = {}
 
             # save the bone settings
             for bone in rig_object.pose.bones:
@@ -1429,25 +1404,9 @@ def save_metadata(properties):
                         'scale': bone.custom_shape_scale_xyz[:],
                         'use_bone_size': bone.use_custom_shape_bone_size
                     }
-                # save bone group if b3
-                if bpy.app.version[0] < 4:
-                    if bone.bone_group:
-                        bone_data['bone_group'] = bone.bone_group.name
 
                 if bone_data:
                     visual_data['bones'][bone.name] = bone_data
-
-            # save the bone_groups if b3
-            if bpy.app.version[0] < 4:
-                for bone_group in rig_object.pose.bone_groups:
-                    visual_data['bone_groups'][bone_group.name] = {
-                        'color_set': bone_group.color_set,
-                        'colors': {
-                            'normal': bone_group.colors.normal[:],
-                            'select': bone_group.colors.select[:],
-                            'active': bone_group.colors.active[:],
-                        }
-                    }
 
             file_path = templates.get_template_file_path(f'{Modes.CONTROL.name.lower()}_metadata.json', properties)
             templates.save_json_file(visual_data, file_path)

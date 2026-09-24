@@ -340,9 +340,11 @@ class ValidationManager:
         if self.properties.validate_project_settings and self.properties.path_mode != PathModes.SEND_TO_DISK.value:
             if not UnrealRemoteCalls.is_using_legacy_fbx_importer():
                 utilities.report_error(
-                    "The Legacy FBX Importer must be used instead of Scene Interchange. Please run this command in the "
-                    "Unreal Editor: Interchange.FeatureFlags.Import.FBX False. Otherwise, persist this in the project's "
-                    "DefaultEngine.ini file."
+                    "The Legacy FBX Importer must be used instead of Interchange. The console variable "
+                    "'Interchange.FeatureFlags.Import.FBX' must be set to 'False'. Run this command in the Unreal "
+                    "Editor: Interchange.FeatureFlags.Import.FBX False, and persist it under [ConsoleVariables] in "
+                    "the project's Config/DefaultEngine.ini file. See "
+                    "https://poly-hammer.github.io/BlenderTools/send2ue/introduction/quickstart/"
                 )
                 return False
 

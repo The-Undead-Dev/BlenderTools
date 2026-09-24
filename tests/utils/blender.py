@@ -223,11 +223,11 @@ class BlenderRemoteCalls:
             # set the switch value on the bone
             bpy.data.objects[rig_name].pose.bones[bone_name]['IK_FK'] = value
             # then select the control
-            bpy.data.objects[rig_name].data.bones[control_name].select = True
+            bpy.data.objects[rig_name].pose.bones[control_name].select = True
 
     @staticmethod
     def select_bones(rig_name, bone_names):
-        bones = bpy.data.objects[rig_name].data.bones
+        bones = bpy.data.objects[rig_name].pose.bones
         for bone in bones:
             bone.select = False
 
@@ -410,11 +410,11 @@ class BlenderRemoteCalls:
             control_rig = bpy.data.objects.get(control_rig_name)
             control_rig.select_set(True)
             bpy.context.view_layer.objects.active = control_rig
-            control_rig.animation_data.action = action
+            Blender.assign_action(control_rig.animation_data, action)
         else:
             rig_object.select_set(True)
             bpy.context.view_layer.objects.active = rig_object
-            rig_object.animation_data.action = action
+            Blender.assign_action(rig_object.animation_data, action)
 
         bpy.context.scene.frame_set(frame)
 
@@ -527,6 +527,38 @@ class BlenderRemoteCalls:
 
 
 class Blender:
+    @staticmethod
+    def get_action_fcurves(action):
+        """
+        Gets the fcurves of every slot in an action through the slotted action API.
+
+        :param object action: An action.
+        :return list: A list of fcurves.
+        """
+        fcurves = []
+        if action:
+            for layer in action.layers:
+                for strip in layer.strips:
+                    for channelbag in getattr(strip, 'channelbags', []):
+                        fcurves.extend(channelbag.fcurves)
+        return fcurves
+
+    @staticmethod
+    def assign_action(anim_data, action):
+        """
+        Assigns an action to the given animation data, and makes sure an action slot is assigned as well.
+
+        :param object anim_data: The animation data of an ID.
+        :param object action: An action.
+        """
+        anim_data.action = action
+        if action and not anim_data.action_slot:
+            suitable_slots = list(anim_data.action_suitable_slots)
+            if suitable_slots:
+                anim_data.action_slot = suitable_slots[0]
+            else:
+                anim_data.action_slot = action.slots.new('OBJECT', anim_data.id_data.name)
+
     @staticmethod
     def get_action_names(rig_object, all_actions=True):
         """
@@ -643,7 +675,7 @@ class Blender:
         """
         original_location = []
         if action:
-            for fcurve in action.fcurves:
+            for fcurve in Blender.get_action_fcurves(action):
                 if fcurve.data_path == 'location':
                     # the offset from the first location keyframe and the passed in world location
                     offset = world_location[fcurve.array_index] - fcurve.keyframe_points[0].co[1]
@@ -704,11 +736,13 @@ class Blender:
                 nla_track.name = active_action.name
 
                 # create a strip with the active action as the strip action
-                nla_track.strips.new(
+                strip = nla_track.strips.new(
                     name=active_action.name,
                     start=1,
                     action=rig_object.animation_data.action
                 )
+                if rig_object.animation_data.action_slot:
+                    strip.action_slot = rig_object.animation_data.action_slot
 
             Blender.set_all_action_attributes(rig_object, attributes)
 

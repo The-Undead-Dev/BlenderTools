@@ -204,11 +204,12 @@ class BaseRPCServer:
             if path not in sys.path:
                 sys.path.append(path)
 
-        # run the function code
-        exec(code)
-        callable_instance = locals().copy().get(callable_name)
+        # run the function code with an explicit namespace, since locals() is a snapshot in python 3.13+ (PEP 667)
+        namespace = {}
+        exec(code, globals(), namespace)
+        callable_instance = namespace.get(callable_name)
 
-        # grab it from the locals and register it with the server
+        # grab it from the namespace and register it with the server
         if callable_instance:
             if self.is_thread:
                 self.server.register_function(

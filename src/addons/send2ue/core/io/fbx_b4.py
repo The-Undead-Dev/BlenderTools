@@ -1,9 +1,11 @@
 import os
+import sys
 import bpy
+import importlib
+import importlib.util
 import numpy as np
 from ..utilities import report_error
 from mathutils import Vector
-from importlib.machinery import SourceFileLoader
 
 SCALE_FACTOR = 100
 
@@ -17,15 +19,26 @@ def export(**keywords):
     The functions below have been tweaked from their originals here:
     https://github.com/blender/blender-addons/blob/master/io_scene_fbx/export_fbx_bin.py
     """
-    import addon_utils
-    addons = {os.path.basename(os.path.dirname(module.__file__)): module.__file__ for module in addon_utils.modules()}
-    addon_folder_path = os.path.dirname(addons.get('io_scene_fbx'))
-
-    # this load the io_scene_fbx module from the blender FBX addon
+    # this loads the io_scene_fbx module from the blender FBX addon, which lives in addons_core on sys.path
     try:
-        SourceFileLoader('io_scene_fbx', os.path.join(addon_folder_path, '__init__.py')).load_module()
-    except RuntimeError as error:
-        print(error)
+        importlib.import_module('io_scene_fbx.export_fbx_bin')
+    except ImportError:
+        import addon_utils
+        addons = {
+            os.path.basename(os.path.dirname(module.__file__)): module.__file__ for module in addon_utils.modules()
+        }
+        addon_folder_path = os.path.dirname(addons.get('io_scene_fbx'))
+        spec = importlib.util.spec_from_file_location(
+            'io_scene_fbx',
+            os.path.join(addon_folder_path, '__init__.py'),
+            submodule_search_locations=[addon_folder_path]
+        )
+        module = importlib.util.module_from_spec(spec)
+        sys.modules['io_scene_fbx'] = module
+        try:
+            spec.loader.exec_module(module)
+        except RuntimeError as error:
+            print(error)
 
     import io_scene_fbx.export_fbx_bin as export_fbx_bin
     from io_scene_fbx.export_fbx_bin import (
@@ -60,7 +73,8 @@ def export(**keywords):
         elem_props_template_init,
         elem_props_template_set,
         elem_props_template_finalize,
-        fbx_name_class
+        fbx_name_class,
+        ObjectWrapper
     )
 
     convert_rad_to_deg_iter = units_convertor_iter("radian", "degree")
@@ -116,7 +130,8 @@ def export(**keywords):
             # Ignore absolute shape keys for now!
             if not me.shape_keys.use_relative:
                 continue
-            for shape, (channel_key, geom_key, _shape_verts_co, _shape_verts_idx) in shapes.items():
+            # the shape tuple has 4 items in blender 5.0 and 5 items in 5.1+
+            for shape, (channel_key, geom_key, *_) in shapes.items():
                 acnode = AnimationCurveNodeWrapper(channel_key, 'SHAPE_KEY', force_key, force_sek, (0.0,))
                 # Sooooo happy to have to twist again like a mad snake... Yes, we need to write those curves twice. :/
                 acnode.add_group(me_key, shape.name, shape.name, (shape.name,))

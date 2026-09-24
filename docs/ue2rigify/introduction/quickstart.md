@@ -2,6 +2,10 @@
 
 This quick start guide will help you get up and running with the UE to Rigify addon.
 
+!!! note
+
+    UE to Rigify supports Blender 5.0 through 5.2. Use an older release of the addon for earlier Blender versions.
+
 First thing you need to do is download the latest versioned zip file from the [releases page](https://github.com/poly-hammer/BlenderTools/releases?q=UE+to+Rigify&expanded=true)
 under the `Assets` dropdown. The zip file name will start with `ue2rigify`.
 

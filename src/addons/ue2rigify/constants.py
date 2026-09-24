@@ -1,5 +1,4 @@
 # Copyright Epic Games, Inc. All Rights Reserved.
-import bpy
 import os
 import tempfile
 from enum import Enum
@@ -35,10 +34,7 @@ class Nodes:
 class Template:
     @staticmethod
     def DEFAULT_RIG_TEMPLATES_PATH():
-        if bpy.app.version[0] < 4:
-            return os.path.join(tempfile.gettempdir(), ToolInfo.NAME.value, 'resources', 'rig_templates', 'b3_6')
-        else:
-            return os.path.join(tempfile.gettempdir(), ToolInfo.NAME.value, 'resources', 'rig_templates', 'b4_0')
+        return os.path.join(tempfile.gettempdir(), ToolInfo.NAME.value, 'resources', 'rig_templates', 'b4_0')
 
     DEFAULT_MALE_TEMPLATE = 'male_mannequin_UE4'
     DEFAULT_FEMALE_TEMPLATE = 'female_mannequin_UE4'

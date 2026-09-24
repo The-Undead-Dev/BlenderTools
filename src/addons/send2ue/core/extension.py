@@ -410,9 +410,10 @@ class ExtensionFactory:
         """
         Removes all extension property data from the scene.
         """
-        # delete the scene data block for the extensions if they exist
-        if bpy.context.scene.get(ToolInfo.NAME.value, {}).get(Extensions.NAME):
-            del bpy.context.scene[ToolInfo.NAME.value][Extensions.NAME]
+        # unset the scene data block for the extensions if they exist
+        properties = getattr(bpy.context.scene, ToolInfo.NAME.value, None)
+        if properties and hasattr(properties, Extensions.NAME):
+            properties.property_unset(Extensions.NAME)
 
     @staticmethod
     def remove_utility_operators():

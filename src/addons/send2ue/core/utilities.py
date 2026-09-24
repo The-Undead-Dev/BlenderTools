@@ -14,6 +14,7 @@ from ..ui import header_menu
 from ..dependencies import unreal
 from ..constants import BlenderTypes, UnrealTypes, ToolInfo, PreFixToken, PathModes, RegexPresets
 from mathutils import Vector, Quaternion
+from bpy_extras import anim_utils
 
 
 def track_progress(message='', attribute=''):
@@ -204,6 +205,80 @@ def get_mesh_unreal_type(mesh_object):
     return UnrealTypes.STATIC_MESH
 
 
+def get_action_fcurves(action, slot=None):
+    """
+    Gets the fcurves of an action through the slotted action API.
+
+    :param object action: An action.
+    :param object slot: An action slot. If not provided, the fcurves of every slot are returned.
+    :return list: A list of fcurves.
+    """
+    if not action:
+        return []
+
+    if slot:
+        channelbag = anim_utils.action_get_channelbag_for_slot(action, slot)
+        return list(channelbag.fcurves) if channelbag else []
+
+    fcurves = []
+    for layer in action.layers:
+        for strip in layer.strips:
+            for channelbag in getattr(strip, 'channelbags', []):
+                fcurves.extend(channelbag.fcurves)
+    return fcurves
+
+
+def remove_action_fcurve(action, fcurve):
+    """
+    Removes a fcurve from an action through its owning channelbag.
+
+    :param object action: An action.
+    :param object fcurve: The fcurve to remove.
+    """
+    for layer in action.layers:
+        for strip in layer.strips:
+            for channelbag in getattr(strip, 'channelbags', []):
+                for channelbag_fcurve in channelbag.fcurves:
+                    if channelbag_fcurve == fcurve:
+                        channelbag.fcurves.remove(fcurve)
+                        return
+
+
+def assign_strip_action_slot(strip, slot=None):
+    """
+    Makes sure a nla strip has an action slot assigned. The given slot is used if it belongs to the strip's action,
+    otherwise the first suitable slot is used.
+
+    :param object strip: A nla strip.
+    :param object slot: A preferred action slot.
+    """
+    if not strip.action:
+        return
+
+    if slot and any(action_slot == slot for action_slot in strip.action.slots):
+        strip.action_slot = slot
+    elif not strip.action_slot:
+        suitable_slots = list(strip.action_suitable_slots)
+        if suitable_slots:
+            strip.action_slot = suitable_slots[0]
+
+
+def assign_action(anim_data, action):
+    """
+    Assigns an action to the given animation data, and makes sure an action slot is assigned as well.
+
+    :param object anim_data: The animation data of an ID.
+    :param object action: An action.
+    """
+    anim_data.action = action
+    if action and not anim_data.action_slot:
+        suitable_slots = list(anim_data.action_suitable_slots)
+        if suitable_slots:
+            anim_data.action_slot = suitable_slots[0]
+        else:
+            anim_data.action_slot = action.slots.new('OBJECT', anim_data.id_data.name)
+
+
 def get_custom_property_fcurve_data(action_name):
     """
     Gets the names and key frame points of object custom property values from the fcurves.
@@ -215,7 +290,7 @@ def get_custom_property_fcurve_data(action_name):
     action = bpy.data.actions.get(action_name)
     frame_rate = bpy.context.scene.render.fps
     if action:
-        for fcurve in action.fcurves:
+        for fcurve in get_action_fcurves(action):
             if fcurve.data_path.startswith('["') and fcurve.data_path.endswith('"]'):
                 name = fcurve.data_path.strip('["').strip('"]')
                 data[name] = [[(point.co[0] - 1) / frame_rate, point.co[1]] for point in fcurve.keyframe_points]
@@ -737,7 +812,7 @@ def set_context(context):
 
             active_action = attributes.get('active_action')
             if active_action:
-                scene_object.animation_data.action = bpy.data.actions.get(active_action)
+                assign_action(scene_object.animation_data, bpy.data.actions.get(active_action))
 
             # restore the actions
             set_all_action_attributes(scene_object, attributes.get('actions', {}))
@@ -904,9 +979,9 @@ def remove_object_scale_keyframes(actions):
     :param list actions: A list of action objects.
     """
     for action in actions:
-        for fcurve in action.fcurves:
+        for fcurve in get_action_fcurves(action):
             if fcurve.data_path == 'scale':
-                action.fcurves.remove(fcurve)
+                remove_action_fcurve(action, fcurve)
 
 
 def remove_from_disk(path, directory=False):
@@ -1020,25 +1095,8 @@ def focus_on_selected():
                 for region in area.regions:
                     if region.type == 'WINDOW':
                         override = {'window': window, 'screen': screen, 'area': area, 'region': region}
-                        bpy.ops.view3d.view_selected(override)
-
-
-def resize_object(scale, center_override):
-    """
-    This function scales the active selection from a given global transform position.
-
-    :param tuple scale: A tuple with x,y,z float values for the relative change in scale. Where 1 does not change
-    the current scale value.
-    :param tuple center_override: A tuple with x,y,z float values for the center of the transform.
-    """
-    # since this operator only works in the 3d view a custom context must be passed in
-    for window in bpy.context.window_manager.windows:
-        screen = window.screen
-        for area in screen.areas:
-            if area.type == 'VIEW_3D':
-                override = {'window': window, 'screen': screen, 'area': area}
-                bpy.ops.transform.resize(override, value=scale, center_override=center_override)
-                break
+                        with bpy.context.temp_override(**override):
+                            bpy.ops.view3d.view_selected()
 
 
 def convert_to_class_name(bl_idname):
@@ -1300,11 +1358,12 @@ def stash_animation_data(rig_object):
             nla_track.name = active_action.name
 
             # create a strip with the active action as the strip action
-            nla_track.strips.new(
+            strip = nla_track.strips.new(
                 name=active_action.name,
                 start=1,
                 action=rig_object.animation_data.action
             )
+            assign_strip_action_slot(strip, rig_object.animation_data.action_slot)
 
         set_all_action_attributes(rig_object, attributes)
 
@@ -1458,7 +1517,7 @@ def round_keyframes(actions):
     :param list actions: A list of action objects.
     """
     for action in actions:
-        for fcurve in action.fcurves:
+        for fcurve in get_action_fcurves(action):
             for keyframe_point in fcurve.keyframe_points:
                 keyframe_point.co[0] = round(keyframe_point.co[0])
 
@@ -1568,7 +1627,7 @@ def scale_object_actions(unordered_objects, actions, scale_factor):
             # iterate over any imported actions first this time...
             for action in actions:
                 # iterate through the location curves
-                for fcurve in [fcurve for fcurve in action.fcurves if fcurve.data_path.endswith('location')]:
+                for fcurve in [fcurve for fcurve in get_action_fcurves(action) if fcurve.data_path.endswith('location')]:
                     # the location fcurve of the object
                     if fcurve.data_path == 'location':
                         for keyframe_point in fcurve.keyframe_points:

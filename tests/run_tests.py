@@ -15,8 +15,8 @@ from utils.container_test_manager import ContainerTestManager
 
 BLENDER_ADDONS = os.environ.get('BLENDER_ADDONS', 'send2ue,ue2rigify')
 
-BLENDER_VERSION = os.environ.get('BLENDER_VERSION', '4.1')
-UNREAL_VERSION = os.environ.get('UNREAL_VERSION', '5.4')
+BLENDER_VERSION = os.environ.get('BLENDER_VERSION', '5.2')
+UNREAL_VERSION = os.environ.get('UNREAL_VERSION', '5.8')
 
 # switch ports depending on whether in test environment or not
 BLENDER_PORT = os.environ.get('BLENDER_PORT', '9997')
@@ -130,7 +130,7 @@ if __name__ == '__main__':
                     '-nopause',
                     '-nullrhi',
                     '-nosplash',
-                    '-noloadstartuppackages'
+                    '-noloadstartuppackages',
                     '-log',
                     '-ExecutePythonScript=/tmp/blender_tools/scripts/resources/unreal/init_unreal.py',
                 ],

@@ -5,7 +5,82 @@ import os
 from . import scene, templates
 from ..constants import Viewport, Modes, Rigify, Template
 from mathutils import Vector, Quaternion
+from bpy_extras import anim_utils
 from .. import __package__ as base_package
+
+
+def get_action_fcurves(action, slot=None):
+    """
+    Gets the fcurves of an action through the slotted action API.
+
+    :param object action: An action.
+    :param object slot: An action slot. If not provided, the fcurves of every slot are returned.
+    :return list: A list of fcurves.
+    """
+    if not action:
+        return []
+
+    if slot:
+        channelbag = anim_utils.action_get_channelbag_for_slot(action, slot)
+        return list(channelbag.fcurves) if channelbag else []
+
+    fcurves = []
+    for layer in action.layers:
+        for strip in layer.strips:
+            for channelbag in getattr(strip, 'channelbags', []):
+                fcurves.extend(channelbag.fcurves)
+    return fcurves
+
+
+def remove_action_fcurve(action, fcurve):
+    """
+    Removes a fcurve from an action through its owning channelbag.
+
+    :param object action: An action.
+    :param object fcurve: The fcurve to remove.
+    """
+    for layer in action.layers:
+        for strip in layer.strips:
+            for channelbag in getattr(strip, 'channelbags', []):
+                for channelbag_fcurve in channelbag.fcurves:
+                    if channelbag_fcurve == fcurve:
+                        channelbag.fcurves.remove(fcurve)
+                        return
+
+
+def assign_strip_action_slot(strip, slot=None):
+    """
+    Makes sure a nla strip has an action slot assigned. The given slot is used if it belongs to the strip's action,
+    otherwise the first suitable slot is used.
+
+    :param object strip: A nla strip.
+    :param object slot: A preferred action slot.
+    """
+    if not strip.action:
+        return
+
+    if slot and any(action_slot == slot for action_slot in strip.action.slots):
+        strip.action_slot = slot
+    elif not strip.action_slot:
+        suitable_slots = list(strip.action_suitable_slots)
+        if suitable_slots:
+            strip.action_slot = suitable_slots[0]
+
+
+def assign_action(anim_data, action):
+    """
+    Assigns an action to the given animation data, and makes sure an action slot is assigned as well.
+
+    :param object anim_data: The animation data of an ID.
+    :param object action: An action.
+    """
+    anim_data.action = action
+    if action and not anim_data.action_slot:
+        suitable_slots = list(anim_data.action_suitable_slots)
+        if suitable_slots:
+            anim_data.action_slot = suitable_slots[0]
+        else:
+            anim_data.action_slot = action.slots.new('OBJECT', anim_data.id_data.name)
 
 
 def get_modes():
@@ -117,7 +192,7 @@ def get_action_transform_offset(action, bone_name=None):
     offset = default_transforms
 
     # get each transform value for each of the data paths
-    for fcurve in action.fcurves:
+    for fcurve in get_action_fcurves(action):
         for data_path in offset.keys():
             if fcurve.data_path == data_path:
                 for keyframe_point in fcurve.keyframe_points:
@@ -222,7 +297,7 @@ def set_action_transform_offsets(action, offset, operation, bone_name=None):
         data_paths = [f'pose.bones["{bone_name}"].{data_path}' for data_path in data_paths]
 
     # apply the offset to each fcurve point and handle
-    for fcurve in action.fcurves:
+    for fcurve in get_action_fcurves(action):
         for data_path in data_paths:
             if fcurve.data_path == data_path:
                 for keyframe_point in fcurve.keyframe_points:
@@ -339,34 +414,6 @@ def set_relationship_lines_visibility(show_lines):
                         space.overlay.show_relationship_lines = show_lines
 
 
-def set_rig_color(rig_object, theme, show):
-    """
-    This function get or creates a new bones group of all the rig bones of the provided rig object and sets the group
-    to the provided theme.
-
-    :param object rig_object: A blender object that contains armature data.
-    :param str theme: The name of a bone group color theme.
-    :param bool show: Whether or not to show the bone group colors.
-    """
-    # get or create a new bone group
-    bone_group = rig_object.pose.bone_groups.get(rig_object.name)
-    if not bone_group:
-        bone_group = rig_object.pose.bone_groups.new(name=rig_object.name)
-
-    # set the bone groups color theme
-    bone_group.color_set = theme
-
-    # set whether the bone group colors are visible
-    bpy.context.object.data.show_group_colors = show
-
-    # either add the rig object's bones to the group or remove the group
-    if show:
-        for bone in rig_object.pose.bones:
-            bone.bone_group = bone_group
-    else:
-        rig_object.pose.bone_groups.remove(bone_group)
-
-
 # TODO implement a more functions so some of this logic can be reused and more organized
 def set_viewport_settings(viewport_settings, properties):
     """
@@ -449,10 +496,6 @@ def set_viewport_settings(viewport_settings, properties):
                 # set a custom bone shape for all the bones
                 previous_settings['red_sphere_bones'] = False
                 if rig_object_settings.get('red_sphere_bones'):
-                    # set a give the rig a custom color if b3
-                    if bpy.app.version[0] < 4:
-                        set_rig_color(rig_object, 'THEME01', True)
-
                     # create the display object for the bones
                     display_object = bpy.data.objects.get(Viewport.DISPLAY_SPHERE)
                     if not display_object:
@@ -461,47 +504,25 @@ def set_viewport_settings(viewport_settings, properties):
                     for bone in rig_object.pose.bones:
                         display_object.empty_display_type = 'SPHERE'
                         bone.custom_shape = display_object
-                        if bpy.app.version[0] > 2:
-                            bone.custom_shape_scale_xyz = [0.1, 0.1, 0.1]
-                        else:
-                            bone.custom_shape_scale = 0.1
+                        bone.custom_shape_scale_xyz = [0.1, 0.1, 0.1]
 
                 # remove custom bone shapes from all the bones
                 if not rig_object_settings.get('red_sphere_bones'):
                     if rig_object.name != Rigify.CONTROL_RIG_NAME:
-
-                        # remove the custom rig color if b3
-                        if bpy.app.version[0] < 4:
-                            set_rig_color(rig_object, 'THEME01', False)
                         for bone in rig_object.pose.bones:
                             bone.custom_shape = None
-                            if bpy.app.version[0] > 2:
-                                bone.custom_shape_scale_xyz = [1, 1, 1]
-                            else:
-                                bone.custom_shape_scale = 1
+                            bone.custom_shape_scale_xyz = [1, 1, 1]
 
-                if bpy.app.version[0] < 4:
-                    # set the visible bone layers if b3
-                    if rig_object_settings.get('visible_bone_layers'):
-                        visible_bone_layers = []
-                        for index, layer in enumerate(bpy.context.object.data.layers):
-                            visible_bone_layers.append(layer)
-                            if index in rig_object_settings['visible_bone_layers']:
-                                bpy.context.object.data.layers[index] = True
-                            else:
-                                bpy.context.object.data.layers[index] = False
-                        previous_settings['visible_bone_layers'] = visible_bone_layers
-                else:
-                     # set the visible bone collections if b4
-                    if rig_object_settings.get('visible_bone_collections'):
-                        visible_bone_collections = []
-                        for collection in bpy.context.object.data.collections:
-                            visible_bone_collections.append(collection.name)
-                            if collection.name in rig_object_settings['visible_bone_collections']:
-                                collection.is_visible = True
-                            else:
-                                collection.is_visible = False
-                        previous_settings['visible_bone_collections'] = visible_bone_collections
+                # set the visible bone collections
+                if rig_object_settings.get('visible_bone_collections'):
+                    visible_bone_collections = []
+                    for collection in bpy.context.object.data.collections_all:
+                        visible_bone_collections.append(collection.name)
+                        if collection.name in rig_object_settings['visible_bone_collections']:
+                            collection.is_visible = True
+                        else:
+                            collection.is_visible = False
+                    previous_settings['visible_bone_collections'] = visible_bone_collections
 
                 # store the previous viewport values in a dictionary in the tool properties
                 bpy.context.scene.ue2rigify.previous_viewport_settings[rig_object_name] = previous_settings
@@ -652,11 +673,12 @@ def stash_animation_data(rig_object):
             nla_track.name = active_action.name
 
             # create a strip with the active action as the strip action
-            nla_track.strips.new(
+            strip = nla_track.strips.new(
                 name=active_action.name,
                 start=1,
                 action=rig_object.animation_data.action
             )
+            assign_strip_action_slot(strip, rig_object.animation_data.action_slot)
 
         set_all_action_attributes(rig_object, attributes)
 
@@ -724,7 +746,8 @@ def focus_on_selected():
                 for region in area.regions:
                     if region.type == 'WINDOW':
                         override = {'window': window, 'screen': screen, 'area': area, 'region': region}
-                        bpy.ops.view3d.view_selected(override)
+                        with bpy.context.temp_override(**override):
+                            bpy.ops.view3d.view_selected()
 
 
 def show_bone_setting(bone_name, tab):
@@ -748,10 +771,10 @@ def show_bone_setting(bone_name, tab):
             bpy.ops.object.mode_set(mode='POSE')
         bpy.ops.pose.select_all(action='DESELECT')
 
-        bone = metarig_object.data.bones.get(bone_name)
-        if bone:
-            bone.select = True
-            metarig_object.data.bones.active = bone
+        pose_bone = metarig_object.pose.bones.get(bone_name)
+        if pose_bone:
+            pose_bone.select = True
+            metarig_object.data.bones.active = pose_bone.bone
             focus_on_selected()
             set_active_properties_panel(tab)
 
@@ -1059,7 +1082,7 @@ def load_control_mode_context(properties):
             active_action_name = control_rig_context.get('active_action', '')
             active_action = bpy.data.actions.get(active_action_name)
             if active_action:
-                control_rig_object.animation_data.action = active_action
+                assign_action(control_rig_object.animation_data, active_action)
 
         # save the current property values on each bone
         for bone in control_rig_object.pose.bones:
@@ -1192,8 +1215,7 @@ def get_rig_template_path():
     template_path = preferences.custom_rig_template_path
     # If custom_rig_template_path is empty, returns Temp folder
     if template_path:
-        subpath = 'b3_6' if bpy.app.version[0] < 4 else 'b4_0'
-        template_path = os.path.join(template_path, subpath)
+        template_path = os.path.join(template_path, 'b4_0')
     else:
         template_path = Template.DEFAULT_RIG_TEMPLATES_PATH()
     return template_path

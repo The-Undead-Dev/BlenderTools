@@ -41,6 +41,15 @@ The repo contains the tasks, launch actions, and settings for developing with vs
 1. Type `> Python: Create Environment`, hit enter and chose `Venv` and choose your Python 3.11 installation, then check the box to install the `requirements.txt`
 1. Close and re-open your integrated terminal in vscode and ensure that you now have a `(.venv)` prefixing your shell. If you do, you are all setup and ready to go!
 
+!!! note
+
+    Blender 5.0 and Unreal use Python 3.11 (the `.venv` environment), but Blender 5.1 and 5.2 use Python 3.13. To launch
+    Blender 5.1+ from the build tasks, also create a Python 3.13 environment named `.py3.13-venv` at the repo root:
+    ```shell
+    C:/path/to/Python313/python.exe -m venv .py3.13-venv
+    .py3.13-venv/Scripts/python -m pip install -r requirements.txt
+    ```
+
 ### Build Tasks
 The VSCode project has build tasks for launch your apps. It is highly recommended that you launch blender and unreal through these, since they will ensure you have the dev dependencies in your python environment for reloading code and debugging. To do this move your cursor over the integrate terminal and press the hot keys `CTRL+SHIFT+B`. 
 

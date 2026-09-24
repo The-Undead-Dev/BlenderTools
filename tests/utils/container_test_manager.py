@@ -28,7 +28,7 @@ from rpc import client
 from rpc import validations
 from rpc import factory
 from http.client import RemoteDisconnected
-from importlib.machinery import SourceFileLoader
+import importlib.util
 
 logging.basicConfig(level=logging.DEBUG)
 
@@ -40,7 +40,10 @@ class TestSuiteCollector(ast.NodeVisitor):
     def __init__(self, test_case_file_path):
         super(TestSuiteCollector, self).__init__()
         module_name, extension = os.path.splitext(os.path.basename(test_case_file_path))
-        self._test_case_module = SourceFileLoader(module_name, test_case_file_path).load_module()
+        spec = importlib.util.spec_from_file_location(module_name, test_case_file_path)
+        self._test_case_module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = self._test_case_module
+        spec.loader.exec_module(self._test_case_module)
         self._test_case_classes = []
 
         with open(test_case_file_path) as test_case_file:

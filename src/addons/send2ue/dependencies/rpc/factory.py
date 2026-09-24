@@ -1,5 +1,6 @@
 import os
 import re
+import ast
 import sys
 import logging
 import types
@@ -30,21 +31,26 @@ class RPCFactory:
         self.default_imports = default_imports or []
 
     @staticmethod
-    def _get_docstring(code, function_name):
+    def _remove_docstring(code):
         """
-        Gets the docstring value from the functions code.
+        Removes the docstring lines from the function code. The lines are found by their position in the parsed code,
+        since python 3.13+ dedents __doc__, so it no longer matches the source text.
 
         :param list code: A list of code lines.
-        :param str function_name: The name of the function.
-        :returns: The docstring text.
-        :rtype: str
+        :returns: The code lines without the docstring.
+        :rtype: list
         """
-        # run the function code
-        exec('\n'.join(code))
-        # get the function from the locals
-        function_instance = locals().copy().get(function_name)
-        # get the doc strings from the function
-        return function_instance.__doc__
+        function_node = ast.parse('\n'.join(code)).body[0]
+        first_statement = function_node.body[0]
+        is_docstring = (
+            isinstance(first_statement, ast.Expr) and
+            isinstance(first_statement.value, ast.Constant) and
+            isinstance(first_statement.value.value, str)
+        )
+        # keep the docstring if it is the only statement, so the function body is not empty
+        if is_docstring and len(function_node.body) > 1:
+            del code[first_statement.lineno - 1:first_statement.end_lineno]
+        return code
 
     @staticmethod
     def _save_execution_history(code, function, args):
@@ -63,9 +69,9 @@ class RPCFactory:
                 file_size = os.path.getsize(history_file_path)
 
             with open(history_file_path, 'a') as history_file:
-                # add the import for SourceFileLoader if the file is empty
+                # add the imports used by the module loading code if the file is empty
                 if file_size == 0:
-                    history_file.write('from importlib.machinery import SourceFileLoader\n')
+                    history_file.write('import sys\nimport importlib.util\n')
 
                 # space out the functions
                 history_file.write(f'\n\n')
@@ -114,7 +120,7 @@ class RPCFactory:
                 if line.startswith('def '):
                     continue
 
-                if key in re.split('\.|\(| ', line.strip()):
+                if key in re.split(r'\.|\(| ', line.strip()):
                     if os.path.basename(self.file_path) == '__init__.py':
                         base_name = os.path.basename(os.path.dirname(self.file_path))
                     else:
@@ -122,10 +128,23 @@ class RPCFactory:
 
                     module_name, file_extension = os.path.splitext(base_name)
 
-                    # add the source file to the import code
-                    source_import_code = f'{module_name} = SourceFileLoader("{module_name}", r"{server_module_path}").load_module()'
-                    if source_import_code not in import_code:
-                        import_code.append(source_import_code)
+                    # add the source file to the import code. Like the removed load_module(), an existing module
+                    # of the same name is executed into rather than replaced, e.g. unreal.py extends the builtin
+                    # unreal module on the unreal server.
+                    spec_code = (
+                        f'{module_name}_spec = importlib.util.spec_from_file_location('
+                        f'"{module_name}", r"{server_module_path}")'
+                    )
+                    if spec_code not in import_code:
+                        import_code.extend([
+                            'import sys',
+                            'import importlib.util',
+                            spec_code,
+                            f'{module_name} = sys.modules.get("{module_name}") or '
+                            f'importlib.util.module_from_spec({module_name}_spec)',
+                            f'sys.modules["{module_name}"] = {module_name}',
+                            f'{module_name}_spec.loader.exec_module({module_name})'
+                        ])
 
                     # relatively import the module from the source file
                     relative_import_code = f'from {module_name} import {key}'
@@ -146,17 +165,12 @@ class RPCFactory:
         code = textwrap.dedent(inspect.getsource(function)).split('\n')
         code = [line for line in code if not line.startswith(('@', '#'))]
 
-        # get the docstring from the code
-        doc_string = self._get_docstring(code, function.__name__)
+        # remove the doc string
+        code = self._remove_docstring(code)
 
         # get import code and insert them inside the function
         import_code = self._get_callstack_references(code, function)
         code.insert(1, import_code)
-
-        # remove the doc string
-        if doc_string:
-            code = '\n'.join(code).replace(doc_string, '')
-            code = [line for line in code.split('\n') if not all([char == '"' or char == "'" for char in line.strip()])]
 
         return code
 
