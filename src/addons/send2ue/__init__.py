@@ -11,8 +11,8 @@ from .core import formatting, validations, settings, utilities, export, ingest, 
 bl_info = {
     "name": "Send to Unreal",
     "author": "Epic Games Inc (now a community fork)",
-    "version": (2, 6, 9),
-    "blender": (3, 6, 0),
+    "version": (2, 7, 0),
+    "blender": (5, 0, 0),
     "location": "Header > Pipeline > Send to Unreal",
     "description": "Sends an asset to the first open Unreal Editor instance on your machine.",
     "warning": "",
@@ -36,7 +36,6 @@ modules = [
     remote_execution,
     addon_preferences,
     extension,
-    io.fbx_b3,
     io.fbx_b4
 ]
 

@@ -29,7 +29,11 @@ if bpy.app.version[0] > 2: # type: ignore
             script_directory = bpy.context.preferences.filepaths.script_directories.new()
             script_directory.name = name # type: ignore
             script_directory.directory = str(scripts_folder) # type: ignore
-            sys.path.append(os.path.join(str(scripts_folder), 'addons'))
+        # put the repo addons first so they take precedence over any installed copy in the user addons folder
+        addons_folder = os.path.join(str(scripts_folder), 'addons')
+        if addons_folder in sys.path:
+            sys.path.remove(addons_folder)
+        sys.path.insert(0, addons_folder)
 
     try:
         bpy.ops.script.reload()

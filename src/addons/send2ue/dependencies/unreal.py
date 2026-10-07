@@ -189,9 +189,11 @@ def bootstrap_unreal_with_rpc_server():
                     'import sys',
                     'import os',
                     'import threading',
+                    # shut down any stale server thread without blocking the main thread, and free its port
                     'for thread in threading.enumerate():',
-                    '\tif thread.name =="UnrealRPCServer":',
-                    '\t\tthread.kill()',
+                    '\tif thread.name == "UnrealRPCServer" and hasattr(thread, "server"):',
+                    '\t\tthreading.Thread(target=thread.server.shutdown, daemon=True).start()',
+                    '\t\tthread.server.server_close()',
                     f'os.environ["RPC_TIME_OUT"] = "{rpc_response_timeout}"',
                     f'sys.path.append(r"{dependencies_path}")',
                     'from rpc import unreal_server',
@@ -492,7 +494,7 @@ class Unreal:
         )
 
         if not fail_reason.is_empty():
-            raise Exception("ERROR from sub_object_subsystem.add_new_subobject: {fail_reason}")
+            raise Exception(f"ERROR from sub_object_subsystem.add_new_subobject: {fail_reason}")
 
         # Need futher investigation to whether attach_subobject call is actually necessary
         subsystem.attach_subobject(parent_handle, sub_handle)
@@ -633,12 +635,13 @@ class Unreal:
                         assets.append(component.static_mesh)
 
         for component in actor.get_components_by_class(unreal.SkeletalMeshComponent):
-            if component.skeletal_mesh:
+            skeletal_mesh = component.get_skeletal_mesh_asset()
+            if skeletal_mesh:
                 # only get the asset type specified in only_type if it is provided
                 if not only_type or only_type == 'SkeletalMesh':
                     # make sure we only get one unique instance of the asset
-                    if component.skeletal_mesh not in assets:
-                        assets.append(component.skeletal_mesh)
+                    if skeletal_mesh not in assets:
+                        assets.append(skeletal_mesh)
 
                 # only get the asset type specified in only_type if it is provided
                 if not only_type or only_type == 'AnimSequence':
@@ -969,7 +972,7 @@ class UnrealImportSequence(Unreal):
             self._control_rig_settings.insert_animation = False
             self._control_rig_settings.import_onto_selected_controls = False
             sequencer_tools.import_fbx_to_control_rig(
-                world=unreal.EditorLevelLibrary.get_editor_world(),
+                world=unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world(),
                 sequence=self._sequence,
                 actor_with_control_rig_track=self._track_name,
                 selected_control_rig_names=[],
@@ -1104,11 +1107,14 @@ class UnrealRemoteCalls:
     
     @staticmethod
     def is_using_legacy_fbx_importer():
-        if float(unreal.SystemLibrary.get_engine_version().split('-')[0].rsplit('.',1)[0]) >= 5.5:
-            value = unreal.SystemLibrary.get_console_variable_string_value(r'Interchange.FeatureFlags.Import.FBX')
-            return value.lower() in ['false', '0']
-        else:
-            return True
+        """
+        Checks whether the legacy FBX importer is used instead of Interchange. An empty or unknown cvar value is
+        treated as not using the legacy importer.
+
+        :return bool: Whether the legacy FBX importer is used.
+        """
+        value = unreal.SystemLibrary.get_console_variable_string_value(r'Interchange.FeatureFlags.Import.FBX')
+        return str(value or '').strip().lower() in ['false', '0']
 
     @staticmethod
     def has_socket(asset_path, socket_name):
@@ -1409,11 +1415,11 @@ class UnrealRemoteCalls:
         skeletal_mesh_subsystem = unreal.get_editor_subsystem(unreal.SkeletalMeshEditorSubsystem)
         lod_count = skeletal_mesh_subsystem.get_lod_count(skeletal_mesh)
         if lod_count > 1:
-            skeletal_mesh.remove_lo_ds(list(range(1, lod_count)))
+            skeletal_mesh_subsystem.remove_lods(skeletal_mesh, list(range(1, lod_count)))
 
         lod_settings_path = property_data.get('unreal_skeletal_mesh_lod_settings_path', {}).get('value', '')
         if lod_settings_path:
-            data_asset = Unreal.get_asset(asset_path)
+            data_asset = Unreal.get_asset(lod_settings_path)
             skeletal_mesh.lod_settings = data_asset
             skeletal_mesh_subsystem.regenerate_lod(skeletal_mesh, new_lod_count=lod_count)
 

@@ -80,26 +80,14 @@ def export_fbx_file(file_path, export_settings):
     :param str file_path: A file path where the file will be exported.
     :param dict export_settings: A dictionary of blender export settings for the specific file type.
     """
-    major_version = bpy.app.version[0] # type: ignore
-    
-    if major_version <= 3:
-        io.fbx_b3.export(
-            filepath=file_path,
-            use_selection=True,
-            bake_anim_use_nla_strips=True,
-            bake_anim_use_all_actions=False,
-            object_types={'ARMATURE', 'MESH', 'EMPTY'},
-            **export_settings
-        )
-    elif major_version >= 4:
-        io.fbx_b4.export(
-            filepath=file_path,
-            use_selection=True,
-            bake_anim_use_nla_strips=True,
-            bake_anim_use_all_actions=False,
-            object_types={'ARMATURE', 'MESH', 'EMPTY'},
-            **export_settings
-        )
+    io.fbx_b4.export(
+        filepath=file_path,
+        use_selection=True,
+        bake_anim_use_nla_strips=True,
+        bake_anim_use_all_actions=False,
+        object_types={'ARMATURE', 'MESH', 'EMPTY'},
+        **export_settings
+    )
 
 
 def export_alembic_file(file_path, export_settings):
@@ -113,7 +101,6 @@ def export_alembic_file(file_path, export_settings):
         filepath=file_path,
         end=1,
         selected=True,
-        visible_objects_only=True,
         export_hair=True,
         export_particles=False,
         evaluation_mode='RENDER',

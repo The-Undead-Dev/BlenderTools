@@ -1477,7 +1477,7 @@ class BaseUe2RigifyTestCase(BaseTestCase):
                 self.ue2rigify.constants.ToolInfo.NAME.value,
                 'resources',
                 'rig_templates',
-                'b4_0' if int(os.environ.get('BLENDER_VERSION', '4.1').split('.')[0]) >= 4 else 'b3_6',
+                'b4_0',
                 f'{template_name}_test'.lower()
             ]
 

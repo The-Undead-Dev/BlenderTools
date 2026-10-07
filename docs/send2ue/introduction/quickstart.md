@@ -1,6 +1,11 @@
 # Quickstart
 This quick start guide will help you get up and running with Send to Unreal.
 
+!!! note
+
+    Send to Unreal supports Blender 5.0 through 5.2 and Unreal Engine 5.6 through 5.8. Use an older release of the
+    addon for earlier versions.
+
 First thing you need to do is download the latest versioned zip file from the [releases page](https://github.com/poly-hammer/BlenderTools/releases?q=Send+to+unreal&expanded=true)
 under the `Assets` dropdown. The zip file name will start with `send2ue`.
 
@@ -49,7 +54,7 @@ Search for "python" and then enable `remote execution` and set the Multicast bin
 
 !!! note
 
-    For Unreal 5.5 and higher, the default FBX Importer should be set to use the Legacy FBX Importer. This can be done by changing the project's `DefaultEngine.ini` file to contain.
+    Send to Unreal requires the Legacy FBX Importer instead of Interchange. Set the console variable `Interchange.FeatureFlags.Import.FBX` to `False` by adding this to the project's `Config/DefaultEngine.ini` file:
     ```ini
     [ConsoleVariables]
     Interchange.FeatureFlags.Import.FBX=False

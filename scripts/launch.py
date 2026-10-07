@@ -12,8 +12,7 @@ if ENV_FILE.exists():
     load_dotenv(ENV_FILE)
 
 PYTHON_3_11_VIRTUAL_ENV = REPO_ROOT / '.venv'
-PYTHON_3_10_VIRTUAL_ENV = REPO_ROOT / '.py3.10-venv'
-PYTHON_3_9_VIRTUAL_ENV = REPO_ROOT / '.py3.9-venv'
+PYTHON_3_13_VIRTUAL_ENV = REPO_ROOT / '.py3.13-venv'
 
 BLENDER_STARTUP_SCRIPT = Path(__file__).parent / 'resources' / 'blender' / 'startup.py'
 UNREAL_STARTUP_SCRIPT = Path(__file__).parent / 'resources' / 'unreal' / 'init_unreal.py'
@@ -47,7 +46,8 @@ def shell(command: str, **kwargs):
 def validate_venv(venv_path: Path) -> bool:
     if not venv_path.exists():
         print(f'Virtual environment not found here: "{venv_path}"')
-        python_version = venv_path.name.split('-')[0].strip('.')
+        # .venv is python 3.11, and .py3.13-venv is python 3.13
+        python_version = venv_path.name.split('-')[0].strip('.').replace('py', '')
         if python_version == 'venv':
             python_version = '3.11'
 
@@ -72,9 +72,10 @@ def validate_exe(exe_path: Path) -> bool:
 
 
 def launch_blender(version: str, debug: str):
+    # blender 5.0 uses python 3.11, and blender 5.1+ uses python 3.13
     virtual_env = PYTHON_3_11_VIRTUAL_ENV
-    if version in ['3.6', '4.0']:
-        virtual_env = PYTHON_3_10_VIRTUAL_ENV
+    if version not in ['5.0']:
+        virtual_env = PYTHON_3_13_VIRTUAL_ENV
 
     if not validate_venv(virtual_env):
         return
@@ -109,9 +110,8 @@ def launch_blender(version: str, debug: str):
 
 
 def launch_unreal(version: str, debug: str):
+    # unreal 5.6+ uses python 3.11
     virtual_env = PYTHON_3_11_VIRTUAL_ENV
-    if version in ['5.3']:
-        virtual_env = PYTHON_3_9_VIRTUAL_ENV
 
     if not validate_venv(virtual_env):
         return
@@ -119,7 +119,7 @@ def launch_unreal(version: str, debug: str):
     exe_path = os.environ.get('UNREAL_EXE_PATH')
     if not exe_path:
         if sys.platform == 'win32':
-            exe_path = rf'C:\Program Files\Epic Games\UE_{app_version}\Engine\Binaries\Win64\UnrealEditor.exe'
+            exe_path = rf'C:\Program Files\Epic Games\UE_{version}\Engine\Binaries\Win64\UnrealEditor.exe'
         else:
             exe_path = None
 

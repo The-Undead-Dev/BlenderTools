@@ -7,6 +7,7 @@ from send2ue.core.extension import ExtensionBase
 from send2ue.core.utilities import (
     convert_blender_rotation_to_unreal_rotation,
     convert_blender_to_unreal_location,
+    get_action_fcurves,
     get_armature_modifier_rig_object,
     get_asset_name
 )
@@ -160,7 +161,7 @@ class InstanceAssetsExtension(ExtensionBase):
 
                 # otherwise the if location is in the action curves, that first frame determines
                 # the actors location in the level
-                for fcurve in action.fcurves:
+                for fcurve in get_action_fcurves(action):
                     for keyframe in fcurve.keyframe_points:
                         if fcurve.data_path == 'location':
                             # only get the value from the start frame
